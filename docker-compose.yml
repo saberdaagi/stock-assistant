@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: stock-assistant-db
+    environment:
+      POSTGRES_DB: stock_assistant
+      POSTGRES_USER: stock_user
+      POSTGRES_PASSWORD: stock_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stock_user -d stock_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - stock-network
+
+  # Ollama with llama3.2
+  ollama:
+    build:
+      context: .
+      dockerfile: ollama.Dockerfile
+    container_name: stock-assistant-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - stock-network
+
+  # Stock Server Application
+  stock-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: stock-server
+    container_name: stock-assistant-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/stock_assistant
+      - SPRING_DATASOURCE_USERNAME=stock_user
+      - SPRING_DATASOURCE_PASSWORD=stock_password
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=5
+      - SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE=2
+      - SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT=30000
+      - SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=20000
+      - SPRING_DATASOURCE_HIKARI_MAX_LIFETIME=120000
+    networks:
+      - stock-network
+    restart: unless-stopped
+    extra_hosts:
+      - "postgres:172.17.0.1"
+
+  # AI Client Application
+  stock-ai-client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: stock-ai-client
+    container_name: stock-assistant-ai-client
+    depends_on:
+      - stock-server
+      - ollama
+    ports:
+      - "8060:8060"
+    environment:
+      - STOCK_API_BASE_URL=http://stock-server:8080/api/v1
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2
+    networks:
+      - stock-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  ollama_data:
+
+networks:
+  stock-network:
+    driver: bridge

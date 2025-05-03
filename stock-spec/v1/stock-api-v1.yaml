@@ -1,0 +1,519 @@
+openapi: 3.0.3
+info:
+  title: Stock Management API
+  version: 1.0.0
+  description: |
+    ## Enterprise Inventory Management System
+    
+    Comprehensive REST API for stock control, warehouse management, 
+    inventory tracking, and automated reorder processes.
+  contact:
+    name: Daagi Saber
+    email: saber.daagi.perso@gmail.com
+  license:
+    name: Proprietary
+    url: https://stockassistant.com/license
+
+servers:
+  - url: localhost:8080/api/v1
+    description: Production server
+  - url: localhost:8080/api/v1
+    description: Sandbox server
+
+paths:
+  /products:
+    get:
+      operationId: getProducts
+      tags: [Products]
+      summary: List all products
+      description: Retrieve paginated list of products with optional filters
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - $ref: '#/components/parameters/sort'
+        - name: uuid
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: sku
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: price
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ELECTRONICS, HARDWARE, CONSUMABLES]
+        - name: unitOfMeasure
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [UNIT, KILOGRAM, LITER, METER]
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Products'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      operationId: createProduct
+      tags: [Products]
+      summary: Create a product
+      description: Add a new product to inventory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductRequest'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created product
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /products/{uuid}:
+    parameters:
+      - $ref: '#/components/parameters/productId'
+    put:
+      operationId: updateProduct
+      tags: [Products]
+      summary: Update product
+      description: Modify existing product details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductRequest'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteProduct
+      tags: [Products]
+      summary: Delete product
+      description: Remove product from inventory
+      responses:
+        '204':
+          description: Product deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Warehouse endpoints (same pattern as products)
+  /warehouses:
+    get:
+      operationId: getWarehouses
+      tags: [Warehouses]
+      summary: List warehouses
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - $ref: '#/components/parameters/sort'
+        - name: uuid
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: location
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: capacity
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouses'
+
+    post:
+      operationId: createWarehouse
+      tags: [Warehouses]
+      summary: Create warehouse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseRequest'
+      responses:
+        '201':
+          description: Warehouse created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouse'
+          headers:
+            Location:
+              schema:
+                type: string
+  /warehouses/{uuid}:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateWarehouse
+      tags: [Warehouses]
+      summary: Update warehouse
+      description: Modify an existing warehouse's details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseRequest'
+      responses:
+        '200':
+          description: Warehouse updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Inventory endpoints
+  /inventory:
+    get:
+      operationId: getInventory
+      tags: [Inventory]
+      summary: Get inventory levels
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/pageSize'
+        - name: warehouseId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: productId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inventories'
+  /inventory/{warehouseId}/{productId}:
+    parameters:
+      - name: warehouseId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: productId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateInventoryItem
+      tags: [ Inventory ]
+      summary: Update inventory quantity
+      description: Update the quantity of a product in a specific warehouse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ quantity ]
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 0
+      responses:
+        '200':
+          description: Inventory updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItem'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    # Product Schemas
+    Product:
+      type: object
+      required: [uuid, sku, name]
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        sku:
+          type: string
+          pattern: '^[A-Z0-9-]{5,20}$'
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        category:
+          type: string
+          enum: [ELECTRONICS, HARDWARE, CONSUMABLES]
+        unitOfMeasure:
+          type: string
+          enum: [UNIT, KILOGRAM, LITER, METER]
+        price:
+          type: number
+          format: float
+          minimum: 0
+          example: 19.99
+    ProductRequest:
+      type: object
+      required: [sku, name]
+      properties:
+        sku:
+          type: string
+          pattern: '^[A-Z0-9-]{5,20}$'
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        category:
+          type: string
+          enum: [ELECTRONICS, HARDWARE, CONSUMABLES]
+        unitOfMeasure:
+          type: string
+          enum: [UNIT, KILOGRAM, LITER, METER]
+        price:
+          type: number
+          format: float
+          minimum: 0
+          example: 19.99
+    Products:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    # Warehouse Schemas
+    Warehouse:
+      type: object
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        name:
+          type: string
+        location:
+          type: string
+        capacity:
+          type: integer
+
+    WarehouseRequest:
+      type: object
+      required: [ name, location, capacity ]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        location:
+          type: string
+          maxLength: 255
+        capacity:
+          type: integer
+          minimum: 0
+
+    Warehouses:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warehouse'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    # Inventory Schemas
+    InventoryItem:
+      type: object
+      properties:
+        productId:
+          type: string
+          format: uuid
+        warehouseId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 0
+        lastStockUpdate:
+          type: string
+          format: date-time
+
+    Inventories:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryItem'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+  parameters:
+    page:
+      name: page
+      in: query
+      description: Page number
+      required: false
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+
+    pageSize:
+      name: pageSize
+      in: query
+      description: Items per page
+      required: false
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+        minimum: 1
+
+    sort:
+      name: sort
+      in: query
+      description: Sort field
+      required: false
+      schema:
+        type: string
+        enum: [name, sku, createdAt]
+        default: createdAt
+
+    productId:
+      name: uuid
+      in: path
+      required: true
+      description: Product identifier
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized access
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
