@@ -1,17 +1,20 @@
 # Stock Assistant POC
 
-A **Proof‑of‑Concept** demonstrating how conversational AI can streamline inventory management by automating CRUD operations via natural language.
+A **POC** showing how to bring **Spring AI** into a traditional Spring Boot application, using an **API-first** design and a **clean, hexagonal architecture**.
+
+The idea is to explore how conversational interfaces can simplify existing workflows like managing stock without changing the core of a working system.
 
 ---
 
 ## 1. Overview & Rationale
 
-* **Goal:** Enable users to manage inventory with plain‑English prompts instead of raw API calls.
-* **Approach:**
+This project started as a regular Spring Boot inventory system. Then we asked: *what if you could use natural language to interact with it no dropdowns, no complex UI, just plain English?*
 
-    1. **OpenAPI‑first**: Generate a type‑safe Java client and server stubs from the spec.
-    2. **Tools layer**: Wrap generated client APIs (`ProductsApi`, `InventoryApi`, etc.) in Spring `@Tool` classes.
-    3. **AI ChatClient**: Expose these tools through a chat endpoint that interprets natural language.
+We added **Spring AI v1.0.0-M6** to the mix and exposed the business logic through **OpenAPI-generated clients**. That made it simple to wrap existing operations as `@Tool`s for the AI to call.
+
+The goal isn’t to reinvent the app it’s to test how AI fits in. And it turns out, even small things like replacing a search form with a prompt (e.g. *"Find all products in ELECTRONICS under 30 euros"*) make the whole experience feel lighter.
+
+By keeping the architecture clean and modular, we can evolve this pattern further or reuse it elsewhere.
 
 ---
 
@@ -25,15 +28,15 @@ stock-assistant/
 └── stock-ai-client/    # AI client module (generated client, tool wrappers, ChatController)
 ```
 
-* **stock-spec/**: Defines REST endpoints, schemas, parameters; serves as the single source of truth.
-* **stock-server/**: Implements controllers, services, adapters, and domain logic following hexagonal architecture.
-* **stock-ai-client/**: Contains the AI integration—generated OpenAPI client, `@Tool` wrappers, and chat controller.
+* **stock-spec/**: Defines REST endpoints, schemas, and parameters the source of truth.
+* **stock-server/**: Implements business logic, adapters, and domain entities using hexagonal architecture.
+* **stock-ai-client/**: Contains generated client code, `@Tool` wrappers, and the AI chat interface.
 
 ---
 
 ## 3. AI Chat Endpoint
 
-Users send JSON‑wrapped prompts to the chat endpoint:
+Users interact with the backend using plain-language prompts sent to the chat endpoint:
 
 ```http
 POST /api/chat/process
@@ -42,159 +45,139 @@ Content-Type: application/json
 { "prompt": "Add a new product called \"Wireless Mouse\" with SKU \"MOU-987\", category \"ELECTRONICS\", unit \"UNIT\", price 29.99." }
 ```
 
-The **ChatController** relays the prompt to Spring AI’s `ChatClient`:
+### 💬 Example Prompts
 
-```java
-@RestController
-@RequestMapping("/api/chat")
-@RequiredArgsConstructor
-public class ChatController {
-    private final ChatClient chatClient;
+#### ➕ Add Product
 
-    @PostMapping("/process")
-    public ResponseEntity<String> process(@RequestBody PromptRequest req) {
-        String aiJson = chatClient
-                .prompt(req.getPrompt())
-                .call()
-                .content();
-        return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(aiJson);
-    }
+*Prompt:*
+
+```text
+Add a product named "Wireless Mouse" with SKU "MOU-987", category ELECTRONICS, unit UNIT, price 29.99.
+```
+
+*Generated API Call:*
+
+```http
+POST /api/v1/products
+Content-Type: application/json
+{
+  "sku": "MOU-987",
+  "name": "Wireless Mouse",
+  "category": "ELECTRONICS",
+  "unitOfMeasure": "UNIT",
+  "price": 29.99
 }
 ```
 
-**Example: Add Product**
+#### 🔍 Search Product
 
-* **Prompt:**
+*Prompt:*
 
-  ```text
-  Add a new product called "Wireless Mouse" with SKU "MOU-987", category "ELECTRONICS", unit "UNIT", price 29.99.
-  ```
-* **Generated API Call:**
+```text
+Find product with name "Wireless Mouse".
+```
 
-  ```http
-  POST /api/v1/products
-  Content-Type: application/json
+*Generated API Call:*
 
-  {
-    "sku":"MOU-987",
-    "name":"Wireless Mouse",
-    "category":"ELECTRONICS",
-    "unitOfMeasure":"UNIT",
-    "price":29.99
-  }
-  ```
-* **AI Response:**
+```http
+GET /api/v1/products?name=Wireless%20Mouse
+```
 
-  ```json
-  { "message": "Product 'Wireless Mouse' (SKU MOU‑987) added successfully." }
-  ```
+#### 📝 Update Product
 
-**Example: Search Products**
+*Prompt:*
 
-* **Prompt:**
+```text
+Update the price of the product with UUID '550e8400-e29b-41d4-a716-446655440000' to 34.99.
+```
 
-  ```text
-  Find all products with name "Wireless Mouse" or SKU "MOU-987".
-  ```
-* **Generated API Call:**
+*Generated API Call (example):*
 
-  ```http
-  GET /api/v1/products?name=Wireless%20Mouse&sku=MOU-987
-  ```
-* **AI Response:**
+```http
+PUT /api/v1/products/{uuid}
+Content-Type: application/json
+{
+  "price": 34.99
+}
+```
 
-  ```json
-  {
-    "data":[
-      { "uuid":"abc123","sku":"MOU-987","name":"Wireless Mouse","category":"ELECTRONICS","unitOfMeasure":"UNIT","price":29.99 }
-    ],
-    "total":1,
-    "page":1,
-    "pageSize":20
-  }
-  ```
+#### ❌ Delete Product
+
+*Prompt:*
+
+```text
+Delete the product with UUID "550e8400-e29b-41d4-a716-446655440000".
+```
+
+*Generated API Call:*
+
+```http
+DELETE /api/v1/products/{uuid}
+```
 
 ---
 
 ## 4. OpenAPI Client & Tools Generation
 
-1. **Generate** Java client from `openapi.yaml` using the OpenAPI Generator Maven plugin (e.g., `resttemplate` library, `interfaceOnly`, `useSpringBoot3`, etc.).
-2. **Configure** generated APIs as Spring beans in `ApiClientConfig.java`:
+1. **Generate** client interfaces using the OpenAPI Generator Maven plugin.
+2. **Configure** clients as Spring Beans:
 
-   ```java
-   @Configuration
-   public class ApiClientConfig {
-       @Value("${stock.api.base-url}")
-       private String baseUrl;
-       @Bean
-       public RestTemplate restTemplate() { /* ... */ }
-       @Bean
-       public ApiClient apiClient(RestTemplate rt) { /* ... */ }
-       @Bean public ProductsApi productsApi(ApiClient c) { return new ProductsApi(c); }
-       // ... InventoryApi, WarehousesApi
-   }
-   ```
-3. **Wrap** each API in a `@Tool` class:
+```java
+@Configuration
+public class ApiClientConfig {
+    @Value("${stock.api.base-url}")
+    private String baseUrl;
 
-   ```java
-   @Component
-   @RequiredArgsConstructor
-   public class ProductTools {
-       private final ProductsApi productsApi;
+    @Bean
+    public RestTemplate restTemplate() { return new RestTemplate(); }
 
-       @Tool(name="create_product",description="Create a new product")
-       public Product createProduct(
-           @ToolParam("Name") String name,
-           @ToolParam("SKU")  String sku,
-           @ToolParam("Price") float price,
-           @ToolParam("Category") ProductRequest.CategoryEnum category,
-           @ToolParam("Unit") ProductRequest.UnitOfMeasureEnum unit
-       ) {
-           ProductRequest req = new ProductRequest()
-               .name(name).sku(sku).price(price)
-               .category(category).unitOfMeasure(unit);
-           return productsApi.createProduct(req);
-       }
-       // ... other tool methods
-   }
-   ```
+    @Bean
+    public ApiClient apiClient(RestTemplate rt) {
+        return new ApiClient(rt).setBasePath(baseUrl);
+    }
+
+    @Bean public ProductsApi productsApi(ApiClient c) { return new ProductsApi(c); }
+    // ... InventoryApi, WarehousesApi
+}
+```
+
+3. **Wrap** API calls using `@Tool`:
+
+```java
+@Component
+@RequiredArgsConstructor
+public class ProductTools {
+    private final ProductsApi productsApi;
+
+    @Tool(name = "create_product", description = "Create a new product")
+    public Product createProduct(/*...*/) {
+        ProductRequest req = new ProductRequest()
+            .name(name).sku(sku).price(price)
+            .category(category).unitOfMeasure(unit);
+        return productsApi.createProduct(req);
+    }
+}
+```
 
 ---
 
-## 5. Expose These APIs as AI Tools
+## 5. AI Tool Registration
 
-Register all `*Tools` beans with `ChatClient` in `AiConfig.java`:
+Register `@Tool` beans with Spring AI’s `ChatClient`:
 
 ```java
 @Configuration
 public class AiConfig {
     @Bean
-    public ChatClient chatClient(
-            ChatClient.Builder builder,
-            InventoryTools inventoryTools,
-            ProductTools productTools,
-            WarehousesTools warehousesTools
-    ) {
-        return builder
-                .defaultTools(inventoryTools, productTools, warehousesTools)
-                .build();
+    public ChatClient chatClient(ChatClient.Builder builder, ProductTools pt, InventoryTools it, WarehousesTools wt) {
+        return builder.defaultTools(pt, it, wt).build();
     }
 }
 ```
 
-This setup:
-
-1. Discovers all `@Tool` methods.
-2. Maps natural‑language prompts to appropriate API calls.
-3. Returns JSON responses back to the user.
-
 ---
 
-## 6. Unit Testing the AI Component
-
-We leverage **WireMock** and **Testcontainers** (Ollama) to test end‑to‑end AI-driven prompts:
+## 6. Unit Testing
 
 ```java
 @SpringBootTest
@@ -205,22 +188,7 @@ class ProductChatControllerTest {
 
     @Test
     void getProductDetails_ValidName_ReturnsDetails() {
-        String productName = "AlphaPhone";
-        WireMock.stubFor(WireMock.get("/products")
-                                 .withQueryParam("name", WireMock.equalTo(productName))
-                                 .willReturn(aResponse()
-                                                     .withStatus(200)
-                                                     .withBody("{ \"data\":[{\"name\":\"AlphaPhone\"}] }")
-                                                     .withHeader("Content-Type","application/json")
-                                 )
-        );
-
-        String response = chatClient
-                .prompt("Give me the detail of the product '"+productName+"'")
-                .call()
-                .content();
-
-        assertTrue(response.contains(productName));
+        // WireMock stub and test setup
     }
 }
 ```
@@ -229,50 +197,22 @@ class ProductChatControllerTest {
 
 ## 7. Running the Project
 
-You can start the entire POC **either** with Docker Compose **or** by running modules locally.
+### ✅ Option A: Docker Compose
 
-### Option A: Docker Compose
-
-A `docker-compose.yml` is provided to spin up all services in one command:
+Use `docker-compose.yml` to start all services and populate **initial test data** automatically:
 
 ```bash
-# From the root of the project:
 docker-compose up -d
 ```
 
-This brings up:
+Services:
 
-* **postgres** (PostgreSQL database on 5432)
-* **ollama** (AI model server on 11434)
-* **stock-server** (Spring Boot backend on 8080)
-* **stock-ai-client** (AI client on 8060)
+* `postgres` (DB)
+* `ollama` (AI)
+* `stock-server` (Spring Boot app)
+* `stock-ai-client` (AI client)
 
-Once healthy, the chat endpoint is at:
-
-```
-http://localhost:8080/api/chat/process
-```
-
-### Option B: Local CLI
-
-If you prefer running modules locally without containers, execute:
-
-```bash
-# 1. Build all modules
-git clone https://github.com/saberdaagi/stock-assistant
-c
-mvn clean install
-
-# 2. Start the server
-cd stock-server
-mvn spring-boot:run
-
-# 3. Start the AI client in a new terminal
-cd stock-ai-client
-mvn spring-boot:run
-```
-
-The chat endpoint remains at:
+Endpoint:
 
 ```
 http://localhost:8080/api/chat/process
@@ -280,4 +220,27 @@ http://localhost:8080/api/chat/process
 
 ---
 
-This completes the setup. Users can now add, search, update, and delete inventory items using conversational prompts that drive real API calls under the hood.
+### 🧑‍💻 Option B: Run Locally
+
+```bash
+# 1. Clone & build
+mvn clean install
+
+# 2. Start the server
+cd stock-server
+mvn spring-boot:run
+
+# 3. Start the AI client
+cd ../stock-ai-client
+mvn spring-boot:run
+```
+
+Chat endpoint:
+
+```
+http://localhost:8080/api/chat/process
+```
+
+---
+
+The application is now up and running. You can manage inventory items through conversational prompts—or better, use this foundation to extend your own AI-enhanced features on top of a familiar business flow.
